@@ -16,7 +16,7 @@ async function main() {
   const target=process.argv[2];
   if (!/^[A-Z0-9]{6,32}$/.test(code) || !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo) || !target) throw Error('fallback configuration invalid');
   const [owner, name]=repo.split('/');
-  const url=`https://${owner.toLowerCase()}.github.io/${name}/snapshots/${code}.json`;
+  const url=`https://${owner.toLowerCase()}.github.io/${name}/snapshots/${code}.json?fresh=${Date.now()}`;
   const res=await fetch(url,{cache:'no-store',redirect:'error',signal:AbortSignal.timeout(20000)});
   if (!res.ok) throw Error('previous verified NAV snapshot not available');
   const value=fallback(await res.json(),code);

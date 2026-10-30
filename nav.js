@@ -20,6 +20,21 @@
     const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Shanghai', year:'numeric',month:'2-digit',day:'2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]));
     return `${parts.year}-${parts.month}-${parts.day}`;
   };
+  // A unique query parameter makes the site's CDN revalidate each snapshot
+  // after publication. The product code is public and is the only identifier.
+  const snapshotPath = (code, stamp = Date.now()) =>
+    `snapshots/${encodeURIComponent(code)}.json?fresh=${encodeURIComponent(stamp)}`;
+  function isCheckOverdue(lastAttempt, now = Date.now()) {
+    const last = Date.parse(lastAttempt);
+    if (!Number.isFinite(last) || !Number.isFinite(now)) return true;
+    // Expected UTC checks correspond to 09:20, 18:20, 22:20 in Shanghai.
+    // Give GitHub's scheduler a 90-minute grace period before warning.
+    const cutoff = now - 90 * 60 * 1000;
+    const day = Math.floor(cutoff / 86400000) * 86400000;
+    const times = [80, 620, 860].map(minutes => day + minutes * 60000);
+    const expected = times.filter(time => time <= cutoff).at(-1) ?? day - 86400000 + 860 * 60000;
+    return last < expected;
+  }
   function validateSnapshot(snapshot, code) {
     code = String(code || '').trim().toUpperCase();
     if (!/^[A-Z0-9]{6,32}$/.test(code) || snapshot?.product?.code !== code || !snapshot.product.name || !Array.isArray(snapshot.history) || !snapshot.history.length) throw Error('已采集数据的产品信息异常');
@@ -123,6 +138,6 @@
     if (isoDate(info.NAV_DATE) !== latest.nav_date || number(info.NAV) !== latest.unit_nav) throw Error('官网产品信息与历史净值暂不一致');
     return { product: {code, name: info.PROD_NAME}, history: rows, latest, checked_at: stamp, attempts, as_of_date: asOf, source:'official' };
   }
-  root.WealthOSNav = { collect, validateSnapshot, todayInChina, isoDate, number };
+  root.WealthOSNav = { collect, validateSnapshot, todayInChina, isoDate, number, snapshotPath, isCheckOverdue };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.WealthOSNav;
 })(typeof window === 'undefined' ? globalThis : window);
