@@ -1,0 +1,45 @@
+name: Publish official NAV viewer
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Beijing time 09:20, 18:20 and 22:20. GitHub schedules may be delayed.
+    - cron: '20 1,10,14 * * *'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/configure-pages@v5
+      - name: Build viewer and fetch official public NAV
+        env:
+          NAV_PRODUCT_CODE: ${{ secrets.NAV_PRODUCT_CODE }}
+        run: |
+          mkdir -p _site/snapshots
+          cp index.html app.js nav.js style.css _site/
+          node build-snapshot.cjs _site/snapshots
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -16,6 +16,34 @@
     if (!Number.isFinite(t) || new Date(t).toISOString().slice(0,10) !== d) throw Error('官网净值日期无效');
     return d;
   };
+  const todayInChina = () => {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Shanghai', year:'numeric',month:'2-digit',day:'2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  function validateSnapshot(snapshot, code) {
+    code = String(code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{6,32}$/.test(code) || snapshot?.product?.code !== code || !snapshot.product.name || !Array.isArray(snapshot.history) || !snapshot.history.length) throw Error('已采集数据的产品信息异常');
+    const checked = Date.parse(snapshot.checked_at);
+    if (!Number.isFinite(checked) || checked > Date.now() + 300000) throw Error('已采集数据的时间异常');
+    const asOf = todayInChina();
+    const history = [];
+    for (const item of snapshot.history) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(item.nav_date)) || isoDate(item.nav_date.replaceAll('-','')) !== item.nav_date || item.nav_date > asOf) throw Error('已采集数据日期异常');
+      const unit = number(item.unit_nav), cumulative = number(item.cumulative_nav, true);
+      if (cumulative !== null && Number(cumulative) < Number(unit)) throw Error('已采集数据数值异常');
+      let url;
+      try { url = new URL(item.source_url); } catch { throw Error('已采集数据来源异常'); }
+      if (url.protocol !== 'https:' || url.hostname !== 'www.beijingbobwealth.com.cn' || url.pathname !== '/bylc-api/product/navlist' || url.searchParams.get('PROD_CODE') !== code) throw Error('已采集数据来源异常');
+      const prev = history.at(-1);
+      if (prev && item.nav_date <= prev.nav_date) throw Error('已采集数据重复或顺序异常');
+      const change = prev ? (Number(unit) / Number(prev.unit_nav) - 1) * 100 : null;
+      if (change !== null && Math.abs(change) > 5) throw Error('已采集数据波动异常，请人工核实');
+      history.push({nav_date:item.nav_date, unit_nav:unit, cumulative_nav:cumulative, source_url:url.href, collected_at:snapshot.checked_at, previous_nav_date:prev?.nav_date, change_pct:change});
+    }
+    const latest = history.at(-1);
+    if (snapshot.latest?.nav_date !== latest.nav_date || number(snapshot.latest.unit_nav) !== latest.unit_nav) throw Error('已采集数据的最新净值不一致');
+    return { product:{code, name:String(snapshot.product.name)}, history, latest, checked_at:new Date(checked).toISOString(), as_of_date:asOf, source:'cloud' };
+  }
   async function collect(code, fetchImpl = fetch) {
     code = String(code || '').trim().toUpperCase();
     if (!/^[A-Z0-9]{6,32}$/.test(code)) throw Error('请输入有效的北银理财产品代码');
@@ -43,8 +71,7 @@
     let page = 1, total = null, pages = null;
     const unique = new Map();
     const stamp = new Date().toISOString();
-    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Shanghai', year:'numeric',month:'2-digit',day:'2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]));
-    const asOf = `${parts.year}-${parts.month}-${parts.day}`;
+    const asOf = todayInChina();
     do {
       const { data, url } = await request('navlist', { PROD_CODE: code, pageSize: '100', pageNumber: String(page) });
       if (!Array.isArray(data.list) || data.pageNumber !== page || data.pageSize !== 100 || !Number.isInteger(data.totalRow) || !Number.isInteger(data.totalPage) || data.totalRow < 1 || data.totalRow > 5000 || data.totalPage < 1 || data.totalPage > 50) throw Error('官网历史净值分页异常');
@@ -74,8 +101,8 @@
     }
     const latest = rows.at(-1);
     if (isoDate(info.NAV_DATE) !== latest.nav_date || number(info.NAV) !== latest.unit_nav) throw Error('官网产品信息与历史净值暂不一致');
-    return { product: {code, name: info.PROD_NAME}, history: rows, latest, checked_at: stamp, attempts, as_of_date: asOf };
+    return { product: {code, name: info.PROD_NAME}, history: rows, latest, checked_at: stamp, attempts, as_of_date: asOf, source:'official' };
   }
-  root.WealthOSNav = { collect, isoDate, number };
+  root.WealthOSNav = { collect, validateSnapshot, todayInChina, isoDate, number };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.WealthOSNav;
 })(typeof window === 'undefined' ? globalThis : window);

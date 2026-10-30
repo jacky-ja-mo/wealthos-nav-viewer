@@ -14,9 +14,21 @@ async function load(code) {
   busy = true;
   $('refresh').disabled = true;
   $('notice').className = 'notice';
-  set('notice', '正在查询北银理财官网，请稍候…');
+  set('notice', '正在读取已采集的官网净值，请稍候…');
   try {
-    const result = await WealthOSNav.collect(code);
+    code = String(code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{6,32}$/.test(code)) throw Error('请输入有效的北银理财产品代码');
+    let result;
+    try {
+      const cached = await fetch(`snapshots/${encodeURIComponent(code)}.json`, {credentials:'omit', cache:'no-store', signal:AbortSignal.timeout(15000)});
+      if (!cached.ok) throw Error('no_snapshot');
+      result = WealthOSNav.validateSnapshot(await cached.json(), code);
+    } catch (snapshotError) {
+      // A bad snapshot must not be presented as real; products without a
+      // published snapshot may still be queried directly from the bank.
+      if (snapshotError?.message !== 'no_snapshot') throw Error('已采集数据暂时无法读取，请稍后重试');
+      result = await WealthOSNav.collect(code);
+    }
     if (data && data.product.code !== result.product.code) {
       $('shares').value = '';
       $('cost').value = '';
@@ -25,7 +37,7 @@ async function load(code) {
     try { localStorage.setItem(codeKey, result.product.code); } catch {}
     $('dashboard').hidden = false;
     $('refresh').disabled = false;
-    set('notice', `查询成功 · 北京时间 ${clock(result.checked_at)}。如当日尚未披露，显示最近一条真实记录。`);
+    set('notice', `${result.source === 'cloud' ? '已读取后台采集结果' : '官网查询成功'} · 最近采集：北京时间 ${clock(result.checked_at)}。如当日尚未披露，显示最近一条真实记录。`);
     render();
   } catch (error) {
     $('notice').className = 'notice error';
