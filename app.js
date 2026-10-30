@@ -54,7 +54,7 @@ function render() {
   set('nav', latest.unit_nav); set('date', latest.nav_date); set('change', pct(latest.change_pct));
   set('interval', latest.previous_nav_date ? `${latest.previous_nav_date} → ${latest.nav_date}` : '暂无前一条记录');
   set('disclosure', latest.nav_date === data.as_of_date ? '当日净值已披露' : '当日净值未披露，显示最近记录');
-  set('count', String(history.length)); set('checked', '本页查询：' + clock(data.checked_at));
+  set('count', String(history.length)); set('checked', (data.source === 'cloud' ? '后台采集：' : '本次查询：') + clock(data.checked_at));
   renderChart(); renderTable(); calculate();
 }
 function svg(tag, attrs, text) {
