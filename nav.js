@@ -1,0 +1,81 @@
+(function (root) {
+  'use strict';
+  const BASE = 'https://www.beijingbobwealth.com.cn/bylc-api/product/';
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const number = (value, optional = false) => {
+    if (value == null && optional) return null;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0 || n > 1000 || Number(n.toFixed(6)) !== n) throw Error('官网净值格式异常，已停止显示');
+    return n.toFixed(6);
+  };
+  const isoDate = value => {
+    const s = String(value);
+    if (!/^\d{8}$/.test(s)) throw Error('官网净值日期格式异常');
+    const d = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+    const t = Date.parse(d + 'T00:00:00Z');
+    if (!Number.isFinite(t) || new Date(t).toISOString().slice(0,10) !== d) throw Error('官网净值日期无效');
+    return d;
+  };
+  async function collect(code, fetchImpl = fetch) {
+    code = String(code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{6,32}$/.test(code)) throw Error('请输入有效的北银理财产品代码');
+    let attempts = 0;
+    async function request(name, params) {
+      const url = BASE + name + '?' + new URLSearchParams(params).toString();
+      let last;
+      for (let i = 0; i < 3; i++) {
+        attempts++;
+        try {
+          const res = await fetchImpl(url, { credentials: 'omit', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(20000) });
+          if (!res.ok) {
+            if (![408,429,500,502,503,504].includes(res.status)) throw Error(`官网返回 ${res.status}`);
+            throw Error('官网暂时不可用');
+          }
+          const json = await res.json();
+          if (json?.state !== 'ok' || !json.data) throw Error('官网响应格式异常');
+          return { data: json.data, url };
+        } catch (error) { last = error; if (i < 2) await sleep((i+1)*800); }
+      }
+      throw last || Error('官网连接失败');
+    }
+    const { data: info } = await request('info', { PROD_CODE: code });
+    if (info.PROD_CODE !== code || info.TA_PROD_CODE !== code || info.MANAGER_NAME !== '北银理财有限责任公司' || !info.PROD_NAME) throw Error('官网产品身份与代码不一致');
+    let page = 1, total = null, pages = null;
+    const unique = new Map();
+    const stamp = new Date().toISOString();
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Shanghai', year:'numeric',month:'2-digit',day:'2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]));
+    const asOf = `${parts.year}-${parts.month}-${parts.day}`;
+    do {
+      const { data, url } = await request('navlist', { PROD_CODE: code, pageSize: '100', pageNumber: String(page) });
+      if (!Array.isArray(data.list) || data.pageNumber !== page || data.pageSize !== 100 || !Number.isInteger(data.totalRow) || !Number.isInteger(data.totalPage) || data.totalRow < 1 || data.totalRow > 5000 || data.totalPage < 1 || data.totalPage > 50) throw Error('官网历史净值分页异常');
+      if (total === null) { total = data.totalRow; pages = data.totalPage; }
+      else if (total !== data.totalRow || pages !== data.totalPage) throw Error('官网数据正在更新，请稍后重试');
+      if (!data.list.length) throw Error('官网返回空的历史净值页面');
+      for (const raw of data.list) {
+        if (raw.PROD_CODE !== code) throw Error('官网净值记录代码不一致');
+        const date = isoDate(raw.NAV_DATE), unit = number(raw.NAV), cumulative = number(raw.ACCUMULATIVE_NAV, true);
+        if (date > asOf || (cumulative !== null && Number(cumulative) < Number(unit))) throw Error('官网净值记录异常');
+        if (unique.has(date)) throw Error('官网净值日期重复，请稍后核实');
+        unique.set(date, { nav_date: date, unit_nav: unit, cumulative_nav: cumulative, source_url: url, collected_at: stamp });
+      }
+      page++;
+      if (page <= pages) await sleep(800);
+    } while (page <= pages);
+    if (unique.size !== total) throw Error('官网历史净值不完整');
+    const rows = [...unique.values()].sort((a,b) => a.nav_date.localeCompare(b.nav_date));
+    for (let i = 0; i < rows.length; i++) {
+      const prev = rows[i-1];
+      if (prev) {
+        const change = (Number(rows[i].unit_nav) / Number(prev.unit_nav) - 1) * 100;
+        if (Math.abs(change) > 5) throw Error('官网净值波动异常，请人工核实');
+        rows[i].change_pct = change;
+        rows[i].previous_nav_date = prev.nav_date;
+      } else rows[i].change_pct = null;
+    }
+    const latest = rows.at(-1);
+    if (isoDate(info.NAV_DATE) !== latest.nav_date || number(info.NAV) !== latest.unit_nav) throw Error('官网产品信息与历史净值暂不一致');
+    return { product: {code, name: info.PROD_NAME}, history: rows, latest, checked_at: stamp, attempts, as_of_date: asOf };
+  }
+  root.WealthOSNav = { collect, isoDate, number };
+  if (typeof module !== 'undefined' && module.exports) module.exports = root.WealthOSNav;
+})(typeof window === 'undefined' ? globalThis : window);
