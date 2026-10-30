@@ -14,7 +14,9 @@ test('encrypted holdings survive reload and contain no plaintext values',async()
 test('wrong passwords and modified ciphertext cannot unlock a vault',async()=>{
   const created=await vault.create(password,holdings);
   await assert.rejects(()=>vault.open(created.envelope,'incorrect-password-123'),/密码不正确/);
-  const bad={...created.envelope,ciphertext:'A'+created.envelope.ciphertext.slice(1)};
+  const first=created.envelope.ciphertext[0]==='A'?'B':'A';
+  const bad={...created.envelope,ciphertext:first+created.envelope.ciphertext.slice(1)};
+  assert.notDeepEqual(Buffer.from(bad.ciphertext,'base64'),Buffer.from(created.envelope.ciphertext,'base64'));
   await assert.rejects(()=>vault.open(bad,password),/密码不正确/);
 });
 test('import rejects malicious parameters and invalid holding data',async()=>{
