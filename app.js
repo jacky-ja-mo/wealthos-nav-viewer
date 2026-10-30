@@ -29,7 +29,8 @@ async function load(code) {
     render();
   } catch (error) {
     $('notice').className = 'notice error';
-    set('notice', `${error.message || '官网连接失败'}。请稍后重试；已有结果不会被替换。`);
+    const message = error instanceof TypeError ? '当前网络暂时无法连接北银理财官网' : error?.name === 'TimeoutError' ? '官网连接超时' : (error.message || '官网连接失败');
+    set('notice', `${message}。请稍后重试；已有结果不会被替换。`);
     $('refresh').disabled = !data;
   } finally { busy = false; }
 }
