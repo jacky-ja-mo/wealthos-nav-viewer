@@ -5,6 +5,8 @@ const pct = n => n == null ? '—' : `${n >= 0 ? '+' : ''}${Number(n).toFixed(4)
 const clock = x => new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',dateStyle:'short',timeStyle:'medium'}).format(new Date(x));
 const codeKey = 'wealthos_public_product_code';
 let data = null, days = 30, page = 0, busy = false;
+$('shares').value = '';
+$('cost').value = '';
 try { $('code').value = localStorage.getItem(codeKey) || ''; } catch {}
 
 async function load(code) {
