@@ -8,7 +8,8 @@ const publicFeed = 'https://jyqodyupqzcavtugmysc.supabase.co/functions/v1/wealth
 let data = null, days = 30, page = 0, busy = false;
 $('shares').value = '';
 $('cost').value = '';
-try { $('code').value = localStorage.getItem(codeKey) || ''; } catch {}
+$('code').value = 'YJ01251204A';
+try { $('code').value = localStorage.getItem(codeKey) || $('code').value; } catch {}
 
 async function load(code) {
   if (busy) return;
@@ -66,7 +67,7 @@ function render() {
   $('source').href = 'https://www.beijingbobwealth.com.cn/xxpl/cpgg/jzgg/index.html?PROD_CODE=' + encodeURIComponent(product.code);
   set('nav', latest.unit_nav); set('date', latest.nav_date); set('change', pct(latest.change_pct));
   set('interval', latest.previous_nav_date ? `${latest.previous_nav_date} → ${latest.nav_date}` : '暂无前一条记录');
-  set('disclosure', latest.nav_date === data.as_of_date ? '当日净值已披露' : '当日净值未披露，显示最近记录');
+  set('disclosure', latest.nav_date === data.as_of_date ? '最新记录日期为今天' : '显示最新已采集记录');
   set('count', String(history.length)); set('checked', (data.source === 'cloud' ? '后台采集：' : '本次查询：') + clock(data.checked_at));
   renderChart(); renderTable(); calculate();
 }
@@ -109,16 +110,22 @@ function renderTable() {
 }
 // Input never leaves the browser or appears in the public page's source.
 function calculate() {
-  const shares=$('shares').value, cost=$('cost').value;
-  if(!data || shares===''){set('asset','不计入资产');set('profit','—');return;}
-  const s=Number(shares), c=cost===''?null:Number(cost), value=s*Number(data.latest.unit_nav);
-  if(!Number.isFinite(s)||s<0||s>1e12||(c!==null&&(!Number.isFinite(c)||c<0||c>1e12))){set('asset','输入无效');set('profit','—');return;}
-  set('asset','¥ '+value.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}));
-  set('profit',c===null?'—':'¥ '+(value-c).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}));
+  const previous=data?.history.at(-2), latest=data?.latest;
+  set('periodInterval', previous && latest ? `净值日期：${previous.nav_date} → ${latest.nav_date}` : '暂无相邻两条净值记录');
+  const result=WealthOSHolding.estimate($('shares').value,$('cost').value,latest,previous);
+  if(result.status!=='ok'){
+    set('asset',result.status==='invalid'?'输入无效':'不计入资产');set('profit','—');
+    set('periodProfit',result.status==='invalid'?'请检查份额和成本':'填写份额后显示');return;
+  }
+  set('asset',WealthOSHolding.money(result.asset));
+  set('profit',result.profit===null?'—':WealthOSHolding.money(result.profit));
+  set('periodProfit',result.periodProfit===null?'暂无相邻净值':WealthOSHolding.money(result.periodProfit));
 }
 $('productForm').addEventListener('submit',event=>{event.preventDefault();load($('code').value);});
 $('refresh').addEventListener('click',()=>load(data?.product.code||$('code').value));
 $('holdingForm').addEventListener('submit',event=>{event.preventDefault();calculate();});
+$('shares').addEventListener('input',calculate);
+$('cost').addEventListener('input',calculate);
 window.addEventListener('wealthos:holdingchange',calculate);
 $('prev').addEventListener('click',()=>{page--;renderTable();});
 $('next').addEventListener('click',()=>{page++;renderTable();});

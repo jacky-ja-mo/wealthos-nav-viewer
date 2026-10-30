@@ -26,8 +26,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - name: Test encrypted local holdings
-        run: node --test test-vault.cjs test-vault-ui.cjs
+      - name: Test local holding estimates and encryption
+        run: node --test test-holding.cjs test-vault.cjs test-vault-ui.cjs
       - uses: actions/configure-pages@v5
       - name: Build viewer and fetch official public NAV
         id: snapshot
@@ -35,7 +35,7 @@ jobs:
           NAV_PRODUCT_CODE: ${{ secrets.NAV_PRODUCT_CODE }}
         run: |
           mkdir -p _site/snapshots
-          cp index.html app.js nav.js vault.js vault-ui.js style.css _site/
+          cp index.html app.js nav.js holding.js vault.js vault-ui.js style.css _site/
           if node build-snapshot.cjs _site/snapshots; then
             echo 'collection=success' >> "$GITHUB_OUTPUT"
           else
