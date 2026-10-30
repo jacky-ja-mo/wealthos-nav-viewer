@@ -4,6 +4,7 @@ const set = (id, value) => $(id).textContent = value;
 const pct = n => n == null ? '—' : `${n >= 0 ? '+' : ''}${Number(n).toFixed(4)}%`;
 const clock = x => new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',dateStyle:'short',timeStyle:'medium'}).format(new Date(x));
 const codeKey = 'wealthos_public_product_code';
+const publicFeed = 'https://jyqodyupqzcavtugmysc.supabase.co/functions/v1/wealthos-dashboard/public-nav';
 let data = null, days = 30, page = 0, busy = false;
 $('shares').value = '';
 $('cost').value = '';
@@ -18,29 +19,37 @@ async function load(code) {
   try {
     code = String(code || '').trim().toUpperCase();
     if (!/^[A-Z0-9]{6,32}$/.test(code)) throw Error('请输入有效的北银理财产品代码');
+    const candidates=[{url:WealthOSNav.snapshotPath(code),label:'网页缓存'}];
+    if(code==='YJ01251204A')candidates.push({url:publicFeed+'?fresh='+Date.now(),label:'云端净值库'});
+    const fetched=await Promise.allSettled(candidates.map(async ({url,label})=>{
+      const response=await fetch(url,{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(6000)});
+      if(!response.ok)throw Error('snapshot_unavailable');
+      return {...WealthOSNav.validateSnapshot(await response.json(),code),channel:label};
+    }));
+    const available=fetched.filter(item=>item.status==='fulfilled').map(item=>item.value);
     let result;
-    try {
-      const cached = await fetch(WealthOSNav.snapshotPath(code), {credentials:'omit', cache:'no-store', signal:AbortSignal.timeout(15000)});
-      if (!cached.ok) throw Error('no_snapshot');
-      result = WealthOSNav.validateSnapshot(await cached.json(), code);
-    } catch (snapshotError) {
-      // A bad snapshot must not be presented as real; products without a
-      // published snapshot may still be queried directly from the bank.
-      if (snapshotError?.message !== 'no_snapshot') throw Error('已采集数据暂时无法读取，请稍后重试');
-      result = await WealthOSNav.collect(code);
-    }
+    if(available.length){
+      available.sort((a,b)=>Date.parse(b.checked_at)-Date.parse(a.checked_at)||Date.parse(b.attempted_at)-Date.parse(a.attempted_at));
+      result=available[0];
+      const lastAttempt=[...available].sort((a,b)=>Date.parse(b.attempted_at)-Date.parse(a.attempted_at))[0];
+      if(lastAttempt.update_status==='failed'&&Date.parse(lastAttempt.attempted_at)>Date.parse(result.checked_at)){
+        result={...result,update_status:'failed',attempted_at:lastAttempt.attempted_at};
+      }
+    } else if(code!=='YJ01251204A') result=await WealthOSNav.collect(code);
+    else throw Error('已采集的公开净值暂时无法读取，请稍后重试');
     if (data && data.product.code !== result.product.code) {
       $('shares').value = '';
       $('cost').value = '';
     }
     data = result; page = 0;
+    window.dispatchEvent(new CustomEvent('wealthos:product',{detail:{code:result.product.code}}));
     try { localStorage.setItem(codeKey, result.product.code); } catch {}
     $('dashboard').hidden = false;
     $('refresh').disabled = false;
     const isStale = result.source === 'cloud' && WealthOSNav.isCheckOverdue(result.attempted_at || result.checked_at);
     const failed = result.source === 'cloud' && result.update_status === 'failed';
     if (isStale || failed) $('notice').className = 'notice error';
-    const state = isStale ? '后台计划检查已延迟，当前显示上次成功记录' : failed ? '后台最近一次连接官网失败，当前显示上次成功记录' : result.source === 'cloud' ? '已读取后台采集结果' : '官网查询成功';
+    const state = isStale ? '后台计划检查已延迟，当前显示上次成功记录' : failed ? '后台最近一次连接官网失败，当前显示上次成功记录' : result.source === 'cloud' ? '已读取'+result.channel : '官网查询成功';
     set('notice', `${state} · 最近成功采集：北京时间 ${clock(result.checked_at)}${failed ? `；失败检查：${clock(result.attempted_at)}` : ''}。如当日尚未披露，显示最近一条真实记录。`);
     render();
   } catch (error) {
@@ -110,6 +119,7 @@ function calculate() {
 $('productForm').addEventListener('submit',event=>{event.preventDefault();load($('code').value);});
 $('refresh').addEventListener('click',()=>load(data?.product.code||$('code').value));
 $('holdingForm').addEventListener('submit',event=>{event.preventDefault();calculate();});
+window.addEventListener('wealthos:holdingchange',calculate);
 $('prev').addEventListener('click',()=>{page--;renderTable();});
 $('next').addEventListener('click',()=>{page++;renderTable();});
 document.querySelectorAll('[data-days]').forEach(b=>b.addEventListener('click',()=>{days=Number(b.dataset.days);document.querySelectorAll('[data-days]').forEach(x=>x.classList.toggle('selected',x===b));renderChart();}));
