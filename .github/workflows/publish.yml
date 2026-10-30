@@ -17,19 +17,30 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      collection: ${{ steps.snapshot.outputs.collection }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: actions/configure-pages@v5
       - name: Build viewer and fetch official public NAV
+        id: snapshot
         env:
           NAV_PRODUCT_CODE: ${{ secrets.NAV_PRODUCT_CODE }}
         run: |
           mkdir -p _site/snapshots
           cp index.html app.js nav.js style.css _site/
-          node build-snapshot.cjs _site/snapshots
+          if node build-snapshot.cjs _site/snapshots; then
+            echo 'collection=success' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Official query failed; retaining the previous verified snapshot.'
+            node fallback-snapshot.cjs _site/snapshots
+            echo 'collection=failed' >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
@@ -43,3 +54,11 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+  report_failure:
+    needs: [build, deploy]
+    if: ${{ always() && needs.build.result == 'success' && needs.build.outputs.collection == 'failed' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo '::error::Official NAV fetch failed. The site retains the last verified records and displays a warning.'
+          exit 1

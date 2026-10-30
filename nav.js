@@ -25,6 +25,10 @@
     if (!/^[A-Z0-9]{6,32}$/.test(code) || snapshot?.product?.code !== code || !snapshot.product.name || !Array.isArray(snapshot.history) || !snapshot.history.length) throw Error('已采集数据的产品信息异常');
     const checked = Date.parse(snapshot.checked_at);
     if (!Number.isFinite(checked) || checked > Date.now() + 300000) throw Error('已采集数据的时间异常');
+    const updateStatus = snapshot.update_status ?? 'success';
+    if (!['success','failed'].includes(updateStatus)) throw Error('后台采集状态异常');
+    const attempted = snapshot.attempted_at ? Date.parse(snapshot.attempted_at) : checked;
+    if (!Number.isFinite(attempted) || attempted < checked || attempted > Date.now() + 300000) throw Error('后台检查时间异常');
     const asOf = todayInChina();
     const history = [];
     for (const item of snapshot.history) {
@@ -42,7 +46,7 @@
     }
     const latest = history.at(-1);
     if (snapshot.latest?.nav_date !== latest.nav_date || number(snapshot.latest.unit_nav) !== latest.unit_nav) throw Error('已采集数据的最新净值不一致');
-    return { product:{code, name:String(snapshot.product.name)}, history, latest, checked_at:new Date(checked).toISOString(), as_of_date:asOf, source:'cloud' };
+    return { product:{code, name:String(snapshot.product.name)}, history, latest, checked_at:new Date(checked).toISOString(), attempted_at:new Date(attempted).toISOString(), update_status:updateStatus, as_of_date:asOf, source:'cloud' };
   }
   async function collect(code, fetchImpl = fetch) {
     code = String(code || '').trim().toUpperCase();
@@ -53,16 +57,32 @@
       let last;
       for (let i = 0; i < 3; i++) {
         attempts++;
+        let retryAfter = 0;
         try {
           const res = await fetchImpl(url, { credentials: 'omit', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(20000) });
           if (!res.ok) {
-            if (![408,429,500,502,503,504].includes(res.status)) throw Error(`官网返回 ${res.status}`);
+            if (![408,429,500,502,503,504].includes(res.status)) {
+              const error = Error(`官网返回 ${res.status}`); error.noRetry = true; throw error;
+            }
+            if (res.status === 429) {
+              const value = res.headers?.get('Retry-After') || '';
+              let seconds = value ? Number(value) : 0;
+              if (value && !Number.isFinite(seconds)) {
+                const date = Date.parse(value);
+                if (!Number.isFinite(date)) { const error = Error('官网要求稍后再试'); error.noRetry = true; throw error; }
+                seconds = Math.max(0, Math.ceil((date-Date.now())/1000));
+              }
+              if (Number.isFinite(seconds) && seconds > 20) {
+                const error = Error('官网要求稍后再试'); error.noRetry = true; throw error;
+              }
+              if (Number.isFinite(seconds) && seconds > 0) retryAfter = seconds * 1000;
+            }
             throw Error('官网暂时不可用');
           }
           const json = await res.json();
-          if (json?.state !== 'ok' || !json.data) throw Error('官网响应格式异常');
+          if (json?.state !== 'ok' || !json.data) { const error = Error('官网响应格式异常'); error.noRetry = true; throw error; }
           return { data: json.data, url };
-        } catch (error) { last = error; if (i < 2) await sleep((i+1)*800); }
+        } catch (error) { last = error; if (error?.noRetry || i === 2) break; await sleep(Math.max(retryAfter,(i+1)*1500)); }
       }
       throw last || Error('官网连接失败');
     }

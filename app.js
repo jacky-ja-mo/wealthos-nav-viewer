@@ -37,7 +37,11 @@ async function load(code) {
     try { localStorage.setItem(codeKey, result.product.code); } catch {}
     $('dashboard').hidden = false;
     $('refresh').disabled = false;
-    set('notice', `${result.source === 'cloud' ? '已读取后台采集结果' : '官网查询成功'} · 最近采集：北京时间 ${clock(result.checked_at)}。如当日尚未披露，显示最近一条真实记录。`);
+    const isStale = result.source === 'cloud' && Date.now()-Date.parse(result.checked_at) > 36*3600000;
+    const failed = result.source === 'cloud' && result.update_status === 'failed';
+    if (isStale || failed) $('notice').className = 'notice error';
+    const state = isStale ? '后台已超过36小时未成功采集，当前显示上次记录' : failed ? '后台最近一次连接官网失败，当前显示上次成功记录' : result.source === 'cloud' ? '已读取后台采集结果' : '官网查询成功';
+    set('notice', `${state} · 最近成功采集：北京时间 ${clock(result.checked_at)}${failed ? `；失败检查：${clock(result.attempted_at)}` : ''}。如当日尚未披露，显示最近一条真实记录。`);
     render();
   } catch (error) {
     $('notice').className = 'notice error';
