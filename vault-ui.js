@@ -35,7 +35,7 @@
     $('vaultPassword').value='';$('vaultConfirm').value='';
     if(password!==confirm)throw Error('两次输入的密码不一致');
     const created=await WealthOSVault.create(password,{[selectedCode]:record});
-    writeStored(created.envelope);unlocked=created;controls();message('已加密保存到当前浏览器。请妥善保存密码和加密备份。');
+    writeStored(created.envelope);unlocked=created;refreshEstimate();controls();message('已加密保存到当前浏览器。请妥善保存密码和加密备份。');
   }));
   $('vaultUnlock').addEventListener('click',()=>run(async()=>{
     const stored=readStored();if(!stored)throw Error('本机没有已保存的加密资料');
@@ -46,7 +46,7 @@
     if(!unlocked)throw Error('请先解锁本机资料');
     const entries={...unlocked.entries,[selectedCode]:entry()};
     const envelope=await WealthOSVault.seal(unlocked.key,unlocked.salt,entries);
-    writeStored(envelope);unlocked.entries=WealthOSVault.normalizeEntries(entries);controls();message('已加密保存到当前浏览器。');
+    writeStored(envelope);unlocked.entries=WealthOSVault.normalizeEntries(entries);refreshEstimate();controls();message('已加密保存到当前浏览器。');
   }));
   $('vaultLock').addEventListener('click',()=>{
     if(!window.confirm('锁定后，未保存的修改会丢失。确定锁定吗？'))return;
