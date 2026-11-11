@@ -2,9 +2,20 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WealthOS · 净值观察</title><meta name="referrer" content="no-referrer"><meta name="description" content="跨银行与基金的理财产品关注列表；已接入产品可查询真实公开净值">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://jyqodyupqzcavtugmysc.supabase.co https://www.beijingbobwealth.com.cn; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
-<link rel="stylesheet" href="style.css?v=11"><script src="nav.js?v=7" defer></script><script src="feed.js?v=1" defer></script><script src="holding.js?v=1" defer></script><script src="vault.js?v=7" defer></script><script src="watchlist.js?v=1" defer></script><script src="app.js?v=9" defer></script><script src="watchlist-ui.js?v=1" defer></script><script src="vault-ui.js?v=8" defer></script></head>
+<link rel="stylesheet" href="style.css?v=12"><script src="nav.js?v=7" defer></script><script src="feed.js?v=1" defer></script><script src="holding.js?v=1" defer></script><script src="vault.js?v=7" defer></script><script src="watchlist.js?v=1" defer></script><script src="app.js?v=9" defer></script><script src="watchlist-ui.js?v=1" defer></script><script src="multi-source-ui.js?v=1" defer></script><script src="vault-ui.js?v=8" defer></script></head>
 <body><header><div class="bar"><b>Wealth<span>OS</span></b><span class="tag">公开净值观察</span><button id="refresh" disabled>↻　刷新净值</button></div></header>
 <main><div class="eyebrow">YOUR WEALTH, IN FOCUS</div><h1>多平台理财观察台<span>.</span></h1><p class="intro">统一登记不同银行、理财公司及基金产品。已接入数据源的产品查看真实净值；未接入的产品明确显示状态。</p>
+<section class="panel multi-panel">
+<div class="panel-title"><div><h2>跨机构公开净值搜索</h2><p>目前接入：中国银行公布的部分代销产品净值。可查多家理财公司，但不是全市场搜索，也不等于全部产品自动追踪。</p></div></div>
+<form id="multiForm" class="multi-form" autocomplete="off">
+<input id="multiQuery" type="search" maxlength="90" required placeholder="输入理财产品代码或名称，如 25112035B" aria-label="跨机构理财产品搜索">
+<button type="submit">搜索官方资料</button>
+<button id="multiRefresh" class="secondary" type="button">重新加载索引</button>
+</form>
+<p id="multiStatus" class="multi-status" role="status" aria-live="polite">输入产品代码搜索。精确份额代码最可靠；A/B 份额不混用。</p>
+<div id="multiResults" class="multi-results"></div>
+<p class="fine">来源：<a href="https://www.boc.cn/sourcedb/srfd6_2024/index.html" target="_blank" rel="noopener noreferrer">中国银行公开代销理财产品净值</a>。此处仅显示成功采集的公开信息，缺失记录不等于产品不存在；没有实际持仓、成交价格或实时申购额度。</p>
+</section>
 <section class="panel watch-panel">
 <div class="panel-title"><div><h2>我的关注产品</h2><p>可以添加不同管理人、销售银行及公募基金的产品；加入关注不等于自动采集已开通。</p></div><span id="watchCount" class="subtle">读取中</span></div>
 <div id="watchItems" class="watch-items"></div>
@@ -33,5 +44,5 @@
 <div class="vault-actions"><button id="vaultCreate" type="button">创建密码并保存</button><button id="vaultUnlock" type="button" hidden>解锁已保存持仓</button><button id="vaultSave" type="button" hidden>保存持仓更改</button><button id="vaultLock" class="secondary" type="button" hidden>锁定</button><button id="vaultExport" class="secondary" type="button" hidden>导出加密备份</button></div>
 <details class="backup"><summary>导入备份或清除本机资料</summary><p class="fine">导入需要备份的保存密码；同一设备已有资料时会先提示是否替换。</p><label>选择加密备份文件<input id="vaultFile" type="file" accept=".json,application/json"></label><label>备份的保存密码<input id="backupPassword" type="password" maxlength="128" autocomplete="off"></label><div class="vault-actions"><button id="vaultImport" type="button">导入加密备份</button><button id="vaultDelete" type="button" class="secondary">清除本机资料</button></div></details></div></div></section>
 <section class="panel"><div class="panel-title"><div><h2>历史净值</h2><p>精确数值来自官网公开接口</p></div><div class="history-tools"><span class="subtle" id="checked">—</span><button id="exportCsv" class="secondary export" type="button" disabled>导出历史 CSV</button></div></div><div class="scroll"><table><thead><tr><th>日期</th><th>单位净值</th><th>累计净值</th><th>相邻披露日涨跌幅</th><th>数据来源</th></tr></thead><tbody id="rows"></tbody></table></div><div class="pages"><span id="pages">—</span><div><button id="prev">上一页</button><button id="next">下一页</button></div></div></section>
-<section class="panel"><h2>查询说明</h2><p class="fine">跨管理人关注列表目前保存在当前浏览器，不会自动跨设备同步。只有诚享7天持有29号A已配置后台自动采集；北银其他产品可尝试按需查询；其他管理人产品暂不提供自动净值。页面读取后台采集的官网公开净值，并保留备用缓存；未配置采集的产品会尝试直接查询官网。“刷新净值”读取已采集的数据，不会强制触发后台采集。公开数据包含产品代码及官网净值，不包含个人持仓。持仓加密保存在本机，网页不读取旧私人持仓。银行尚未披露新净值时，显示最近一次披露的日期和数值。购买状态与额度暂无可靠实时来源。</p></section></div>
+<section class="panel"><h2>数据覆盖与查询说明</h2><p class="fine">中国银行公开净值索引按网页发布流程定期尝试采集，仅覆盖有限页面；其它销售平台、管理人、份额可能缺失。搜索命中不代表已经加入连续历史净值追踪。跨管理人关注列表目前保存在当前浏览器，不会自动跨设备同步。只有诚享7天持有29号A已配置后台自动采集；北银其他产品可尝试按需查询；其他管理人产品暂不提供自动净值。页面读取后台采集的官网公开净值，并保留备用缓存；未配置采集的产品会尝试直接查询官网。“刷新净值”读取已采集的数据，不会强制触发后台采集。公开数据包含产品代码及官网净值，不包含个人持仓。持仓加密保存在本机，网页不读取旧私人持仓。银行尚未披露新净值时，显示最近一次披露的日期和数值。购买状态与额度暂无可靠实时来源。</p></section></div>
 <footer>公开信息仅用于观察，估算结果不代表实际收益或可赎回金额。</footer></main></body></html>
