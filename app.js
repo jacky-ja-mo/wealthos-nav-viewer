@@ -30,12 +30,9 @@ async function load(code) {
     const available=fetched.filter(item=>item.status==='fulfilled').map(item=>item.value);
     let result;
     if(available.length){
-      available.sort((a,b)=>Date.parse(b.checked_at)-Date.parse(a.checked_at)||Date.parse(b.attempted_at)-Date.parse(a.attempted_at));
-      result=available[0];
-      const lastAttempt=[...available].sort((a,b)=>Date.parse(b.attempted_at)-Date.parse(a.attempted_at))[0];
-      if(lastAttempt.update_status==='failed'&&Date.parse(lastAttempt.attempted_at)>Date.parse(result.checked_at)){
-        result={...result,update_status:'failed',attempted_at:lastAttempt.attempted_at};
-      }
+      // A newer check does not necessarily contain a newer officially disclosed NAV.
+      // Prefer the newest NAV date, then the most recently verified source.
+      result=WealthOSFeed.pickBest(available);
     } else if(code!=='YJ01251204A') result=await WealthOSNav.collect(code);
     else throw Error('已采集的公开净值暂时无法读取，请稍后重试');
     if (data && data.product.code !== result.product.code) {
@@ -47,11 +44,12 @@ async function load(code) {
     try { localStorage.setItem(codeKey, result.product.code); } catch {}
     $('dashboard').hidden = false;
     $('refresh').disabled = false;
+    $('exportCsv').disabled = false;
     const isStale = result.source === 'cloud' && WealthOSNav.isCheckOverdue(result.attempted_at || result.checked_at);
     const failed = result.source === 'cloud' && result.update_status === 'failed';
     if (isStale || failed) $('notice').className = 'notice error';
     const state = isStale ? '后台计划检查已延迟，当前显示上次成功记录' : failed ? '后台最近一次连接官网失败，当前显示上次成功记录' : result.source === 'cloud' ? '已读取'+result.channel : '官网查询成功';
-    set('notice', `${state} · 最近成功采集：北京时间 ${clock(result.checked_at)}${failed ? `；失败检查：${clock(result.attempted_at)}` : ''}。如当日尚未披露，显示最近一条真实记录。`);
+    set('notice', `${state} · 最新官方净值日期：${result.latest.nav_date} · 最近成功采集：北京时间 ${clock(result.checked_at)}${failed ? `；失败检查：${clock(result.attempted_at)}` : ''}。官网未披露新值时保留上次真实记录。`);
     render();
   } catch (error) {
     $('notice').className = 'notice error';
@@ -123,6 +121,17 @@ function calculate() {
 }
 $('productForm').addEventListener('submit',event=>{event.preventDefault();load($('code').value);});
 $('refresh').addEventListener('click',()=>load(data?.product.code||$('code').value));
+$('exportCsv').addEventListener('click',()=>{
+  if (!data?.history?.length) return;
+  const csv = WealthOSFeed.toCSV(data.history);
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `wealthos-${data.product.code}-${data.latest.nav_date}.csv`;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
 $('holdingForm').addEventListener('submit',event=>{event.preventDefault();calculate();});
 $('shares').addEventListener('input',calculate);
 $('cost').addEventListener('input',calculate);
